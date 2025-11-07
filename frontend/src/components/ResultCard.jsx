@@ -1,12 +1,20 @@
 import React from "react";
 
 const ResultCard = ({ data }) => {
+  const isUnknown = (data.scientific_name || "").toLowerCase() === "n/a";
+
   return (
     <div style={styles.card}>
-      <h3>✅ Herb Identified</h3>
-      <p><strong>Common Name:</strong> {data.common_name}</p>
-      <p><strong>Scientific Name:</strong> {data.scientific_name}</p>
-      <p><strong>Uses:</strong> {data.uses}</p>
+      <h3>{isUnknown ? "⚠️ Herb Not Identified" : "✅ Herb Identified"}</h3>
+      <p>
+        <strong>Common Name:</strong> {data.common_name}
+      </p>
+      <p>
+        <strong>Scientific Name:</strong> {data.scientific_name}
+      </p>
+      <p>
+        <strong>Uses:</strong> {data.uses}
+      </p>
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import React, { useState, useRef } from "react";
 import Webcam from "react-webcam";
+import api from "../api/api";
 import ResultCard from "./ResultCard"; // Import your ResultCard
 import "../index.css";
 
@@ -44,22 +45,24 @@ function UploadImage() {
     formData.append("file", image);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/predict", {
-        method: "POST",
-        body: formData,
+      const { data } = await api.post("/predict", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
 
-      const data = await response.json();
-
-      if (data.error) {
+      if (data?.error) {
         setError(data.error);
         setResult(null);
-      } else {
-        setResult(data);
-        setError(null);
+        return;
       }
+
+      setResult(data);
+      setError(null);
     } catch (err) {
-      setError("Error connecting to the server.");
+      const message =
+        err.response?.data?.error ||
+        err.message ||
+        "Error connecting to the server.";
+      setError(message);
       setResult(null);
     } finally {
       setLoading(false);

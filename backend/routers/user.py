@@ -13,11 +13,15 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 async def upload_image(file: UploadFile = File(...)):
     # Save uploaded file temporarily
     file_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
 
-    # Identify the herb
-    herb_data = identify_herb(file_path)
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        herb_data = identify_herb(file_path)
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
     if not herb_data:
         raise HTTPException(status_code=400, detail="⚠️ Not a herb! Please try another image.")
