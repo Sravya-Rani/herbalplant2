@@ -77,31 +77,31 @@ def init_sample_data():
         {
             "common_name": "Tulsi (Holy Basil)",
             "scientific_name": "Ocimum tenuiflorum",
-            "uses": "Used for treating respiratory disorders, fever, cough, cold, and stress. Has anti-inflammatory and antioxidant properties.",
+            "uses": "Medical Uses: 1) Respiratory Health - Treats asthma, bronchitis, cough, and cold. Tulsi tea helps clear respiratory passages. 2) Fever Reduction - Acts as a natural antipyretic to reduce fever. 3) Stress and Anxiety - Adaptogenic properties help manage stress and improve mental clarity. 4) Immune Booster - Enhances immunity and helps fight infections. 5) Anti-inflammatory - Reduces inflammation in the body. 6) Antioxidant - Rich in antioxidants that protect against free radicals. 7) Digestive Health - Aids digestion and treats stomach disorders. 8) Skin Care - Applied topically for skin infections and acne. Note: Consult a healthcare professional before using for medical purposes.",
             "description": "A sacred plant in Hinduism, known for its medicinal properties."
         },
         {
             "common_name": "Neem",
             "scientific_name": "Azadirachta indica",
-            "uses": "Used for treating skin conditions, diabetes, dental care, and as an insecticide. Has antibacterial and antifungal properties.",
-            "description": "A versatile medicinal tree native to India."
+            "uses": "Medical Uses: 1) Skin Conditions - Treats acne, eczema, psoriasis, and fungal infections. Neem oil and paste are applied topically for wound healing. 2) Diabetes Management - Helps lower blood sugar levels. Neem leaf extract is used in traditional medicine. 3) Dental Care - Neem twigs are used as natural toothbrushes. Neem-based toothpaste helps prevent gum disease and cavities. 4) Immune System - Boosts immunity and has antiviral properties. 5) Digestive Health - Treats stomach ulcers and improves digestion. 6) Anti-inflammatory - Reduces inflammation and pain. 7) Antiparasitic - Effective against intestinal worms. 8) Blood Purification - Detoxifies blood and improves overall health. Note: Consult a healthcare professional before using for medical purposes.",
+            "description": "A versatile medicinal tree native to India, known as the 'village pharmacy' for its extensive therapeutic properties."
         },
         {
             "common_name": "Aloe Vera",
             "scientific_name": "Aloe barbadensis",
-            "uses": "Used for treating burns, wounds, skin conditions, and digestive issues. Has moisturizing and healing properties.",
+            "uses": "Medical Uses: 1) Skin Healing - Treats burns, wounds, cuts, and sunburns. Aloe gel promotes faster healing and reduces scarring. 2) Skin Conditions - Helps with acne, eczema, psoriasis, and dry skin. Provides natural moisturization. 3) Digestive Health - Aloe juice aids digestion, treats constipation, and soothes stomach ulcers. 4) Oral Health - Reduces plaque and treats gum inflammation when used as mouthwash. 5) Antioxidant - Contains vitamins and antioxidants that support overall health. 6) Wound Care - Applied topically to prevent infection and accelerate healing. 7) Anti-inflammatory - Reduces inflammation and pain. Note: Consult a healthcare professional before using for medical purposes.",
             "description": "A succulent plant known for its gel's medicinal properties."
         },
         {
             "common_name": "Turmeric",
             "scientific_name": "Curcuma longa",
-            "uses": "Used for treating inflammation, arthritis, digestive issues, and as an antioxidant. Has anti-inflammatory properties.",
-            "description": "A spice with powerful medicinal properties."
+            "uses": "Medical Uses: 1) Anti-inflammatory - Reduces inflammation in conditions like arthritis, joint pain, and muscle soreness. Curcumin is the active compound. 2) Antioxidant - Protects cells from damage and supports overall health. 3) Digestive Health - Improves digestion, treats indigestion, and helps with bloating. 4) Wound Healing - Applied topically to heal wounds and prevent infection. 5) Skin Health - Treats acne, eczema, and improves skin complexion. 6) Brain Health - May improve memory and reduce risk of neurodegenerative diseases. 7) Heart Health - Supports cardiovascular health and may lower cholesterol. 8) Immune Support - Boosts immunity and helps fight infections. Note: Consult a healthcare professional before using for medical purposes.",
+            "description": "A spice with powerful medicinal properties, containing curcumin."
         },
         {
             "common_name": "Ginger",
             "scientific_name": "Zingiber officinale",
-            "uses": "Used for treating nausea, digestive issues, inflammation, and cold. Has anti-inflammatory and antioxidant properties.",
+            "uses": "Medical Uses: 1) Nausea and Vomiting - Effective for motion sickness, morning sickness, and post-surgery nausea. Ginger tea is commonly used. 2) Digestive Health - Relieves indigestion, bloating, and stomach discomfort. Stimulates digestion. 3) Anti-inflammatory - Reduces inflammation and pain, especially in arthritis and muscle soreness. 4) Cold and Flu - Helps treat cold symptoms, sore throat, and congestion. Warming properties. 5) Menstrual Pain - Reduces menstrual cramps and discomfort. 6) Blood Circulation - Improves blood flow and may lower blood pressure. 7) Antioxidant - Contains antioxidants that protect against oxidative stress. 8) Respiratory Health - Helps with cough and respiratory congestion. Note: Consult a healthcare professional before using for medical purposes.",
             "description": "A rhizome used both as spice and medicine."
         },
         {

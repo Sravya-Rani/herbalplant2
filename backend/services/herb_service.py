@@ -15,6 +15,17 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 
 logger = logging.getLogger(__name__)
 
+# Import database service
+try:
+    from services.db_service import get_herb_by_name, get_herb_by_scientific_name
+    from database.models import get_db, Herb
+except ImportError:
+    logger.warning("Database services not available. Medical uses lookup will be limited.")
+    get_herb_by_name = None
+    get_herb_by_scientific_name = None
+    get_db = None
+    Herb = None
+
 if load_dotenv:
     env_path = Path(__file__).resolve().parent.parent / ".env"
     load_dotenv(dotenv_path=env_path)
@@ -44,6 +55,89 @@ def _build_failure_response(message: str) -> Dict[str, str]:
     failure = dict(_DEFAULT_FAILURE_RESPONSE)
     failure["uses"] = message
     return failure
+
+
+def _get_medical_uses_from_db(common_name: str, scientific_name: str) -> Optional[str]:
+    """Get medical uses from the database by common name or scientific name.
+    
+    Returns the uses string if found, None otherwise.
+    """
+    if not get_db or not get_herb_by_name or not get_herb_by_scientific_name:
+        logger.warning("Database services not available for medical uses lookup")
+        return None
+    
+    db = None
+    try:
+        db = next(get_db())
+        
+        # Check if database has any herbs
+        if Herb:
+            total_herbs = db.query(Herb).count()
+            logger.debug("Database contains %d herbs", total_herbs)
+            if total_herbs == 0:
+                logger.warning("Database is empty. Run init_database.py to populate it.")
+                return None
+        
+        # Try to find by scientific name first (more accurate)
+        if scientific_name and scientific_name != "Unknown":
+            logger.debug("Searching database for scientific name: %s", scientific_name)
+            herb = get_herb_by_scientific_name(db, scientific_name)
+            if herb and herb.uses:
+                logger.info("Found medical uses in database for scientific name: %s", scientific_name)
+                return herb.uses
+            else:
+                logger.debug("No match found for scientific name: %s", scientific_name)
+        
+        # Try to find by common name
+        if common_name and common_name != "Unknown herb":
+            logger.debug("Searching database for common name: %s", common_name)
+            
+            # Try exact/partial match first (db_service uses ilike with %name%)
+            herb = get_herb_by_name(db, common_name)
+            if herb and herb.uses:
+                logger.info("Found medical uses in database for common name: %s", common_name)
+                return herb.uses
+            
+            # Try partial match - get the first word (e.g., "Neem tree" -> "Neem")
+            clean_name = common_name.split()[0] if " " in common_name else common_name
+            # Also try without parentheses (e.g., "Tulsi (Holy Basil)" -> "Tulsi")
+            if "(" in clean_name:
+                clean_name = clean_name.split("(")[0].strip()
+            
+            if clean_name != common_name:
+                logger.debug("Trying cleaned name: %s", clean_name)
+                herb = get_herb_by_name(db, clean_name)
+                if herb and herb.uses:
+                    logger.info("Found medical uses in database for cleaned name: %s", clean_name)
+                    return herb.uses
+            
+            # Try case-insensitive direct lookup in database
+            if Herb:
+                all_herbs = db.query(Herb).all()
+                logger.debug("Checking %d herbs for fuzzy match with: %s", len(all_herbs), clean_name)
+                for h in all_herbs:
+                    if h.common_name and clean_name.lower() in h.common_name.lower():
+                        if h.uses:
+                            logger.info("Found medical uses in database via fuzzy match: %s -> %s", clean_name, h.common_name)
+                            return h.uses
+                    # Also check if the database name is in the search name
+                    if h.common_name and h.common_name.lower() in clean_name.lower():
+                        if h.uses:
+                            logger.info("Found medical uses in database via reverse fuzzy match: %s -> %s", clean_name, h.common_name)
+                            return h.uses
+        
+        logger.debug("No medical uses found in database for: common_name=%s, scientific_name=%s", common_name, scientific_name)
+        return None
+    except Exception as exc:
+        logger.error("Error querying database for medical uses: %s", exc, exc_info=True)
+        return None
+    finally:
+        # Ensure database session is closed
+        if db:
+            try:
+                db.close()
+            except:
+                pass
 
 
 def _fetch_wikipedia_summary(query: str) -> Optional[str]:
@@ -182,8 +276,22 @@ def identify_herb(image_path: str) -> Dict[str, str]:
     common_names = plant_details.get("common_names") or []
     common_name = common_names[0] if common_names else top_suggestion.get("plant_name", "Unknown")
     scientific_name = top_suggestion.get("plant_name", "Unknown")
-    wiki_description = plant_details.get("wiki_description") or {}
-    uses = wiki_description.get("value") or "No additional information available."
+    
+    # First, try to get medical uses from database
+    uses = _get_medical_uses_from_db(common_name, scientific_name)
+    
+    # If not found in database, try Wikipedia
+    if not uses:
+        if scientific_name and scientific_name != "Unknown":
+            uses = _fetch_wikipedia_summary(scientific_name)
+        
+        if not uses and common_name and common_name != "Unknown":
+            uses = _fetch_wikipedia_summary(common_name)
+    
+    # Final fallback: use API's wiki description or default message
+    if not uses:
+        wiki_description = plant_details.get("wiki_description") or {}
+        uses = wiki_description.get("value") or "No additional information available."
 
     return {
         "common_name": common_name,
@@ -273,35 +381,32 @@ def _identify_with_plantnet(image_path: str) -> Dict[str, str]:
 
     score = top.get("score")
     
-    # Try to get usage information from Wikipedia
-    # First try scientific name, then common name
-    uses_description = None
-    if scientific_name and scientific_name != "Unknown":
-        uses_description = _fetch_wikipedia_summary(scientific_name)
+    # First, try to get medical uses from database (highest priority)
+    uses_description = _get_medical_uses_from_db(common_name, scientific_name)
     
-    if not uses_description and common_name and common_name != "Unknown herb":
-        uses_description = _fetch_wikipedia_summary(common_name)
-    
-    # If still no description, try with "herb" or "plant" suffix
-    if not uses_description and common_name and common_name != "Unknown herb":
-        for suffix in [" herb", " plant", ""]:
-            uses_description = _fetch_wikipedia_summary(f"{common_name}{suffix}")
-            if uses_description:
-                break
-
-    # Final fallback with score information
+    # If not found in database, try Wikipedia
     if not uses_description:
-        if isinstance(score, (int, float)):
-            uses_description = (
-                f"Confidence score: {round(score * 100)}%. "
-                f"This plant ({scientific_name}) has been identified. "
-                f"Please consult a botanical reference for detailed usage information."
-            )
-        else:
-            uses_description = (
-                f"This plant ({scientific_name}) has been identified. "
-                f"Please consult a botanical reference for detailed usage information."
-            )
+        # First try scientific name, then common name
+        if scientific_name and scientific_name != "Unknown":
+            uses_description = _fetch_wikipedia_summary(scientific_name)
+        
+        if not uses_description and common_name and common_name != "Unknown herb":
+            uses_description = _fetch_wikipedia_summary(common_name)
+        
+        # If still no description, try with "herb" or "plant" suffix
+        if not uses_description and common_name and common_name != "Unknown herb":
+            for suffix in [" herb", " plant", ""]:
+                uses_description = _fetch_wikipedia_summary(f"{common_name}{suffix}")
+                if uses_description:
+                    break
+
+    # Final fallback message
+    if not uses_description:
+        uses_description = (
+            f"This plant ({scientific_name}) has been identified. "
+            f"Medical uses information is not available in our database. "
+            f"Please consult a qualified herbalist or medical professional for usage information."
+        )
 
     return {
         "common_name": common_name,
