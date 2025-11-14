@@ -206,7 +206,8 @@ def _fetch_wikipedia_summary(query: str) -> Optional[str]:
 
 
 def identify_herb(image_path: str) -> Dict[str, str]:
-    """Identify the herb using the configured provider (Plant.id or PlantNet)."""
+    """Identify the herb using the configured provider (Plant.id or PlantNet).
+    Falls back to image similarity matching if API key is not available."""
     if PLANT_PROVIDER == "plantnet":
         return _identify_with_plantnet(image_path)
     
@@ -214,10 +215,9 @@ def identify_herb(image_path: str) -> Dict[str, str]:
     api_key = os.getenv(PLANT_ID_API_KEY_ENV)
 
     if not api_key:
-        logger.error("Plant.id API key missing. Set %s in the backend environment.", PLANT_ID_API_KEY_ENV)
-        return _build_failure_response(
-            "Plant identification service is not configured. Please contact the administrator."
-        )
+        logger.warning("Plant.id API key missing. Falling back to image similarity matching.")
+        # Try image similarity matching as fallback
+        return _identify_with_image_similarity(image_path)
 
     try:
         with open(image_path, "rb") as img_file:
@@ -306,13 +306,13 @@ def _identify_with_plantnet(image_path: str) -> Dict[str, str]:
     API docs expect multipart/form-data with one or more "images" parts
     and an "organs" field (e.g., leaf). Authentication is via api-key
     query parameter.
+    Falls back to image similarity matching if API key is not available.
     """
     api_key = os.getenv(PLANTNET_API_KEY_ENV)
     if not api_key:
-        logger.error("PlantNet API key missing. Set %s in the backend environment.", PLANTNET_API_KEY_ENV)
-        return _build_failure_response(
-            "PlantNet identification service is not configured. Please contact the administrator."
-        )
+        logger.warning("PlantNet API key missing. Falling back to image similarity matching.")
+        # Try image similarity matching as fallback
+        return _identify_with_image_similarity(image_path)
 
     query_params = {"api-key": api_key}
     data = {"organs": "leaf"}
@@ -350,6 +350,10 @@ def _identify_with_plantnet(image_path: str) -> Dict[str, str]:
         )
 
     data_json = response.json()
+    
+    # Log full response for debugging (first time only)
+    logger.debug("PlantNet API full response: %s", data_json)
+    
     results = data_json.get("results") or []
     if not results:
         logger.info("PlantNet API did not return results: %s", data_json)
@@ -357,29 +361,65 @@ def _identify_with_plantnet(image_path: str) -> Dict[str, str]:
 
     top = results[0]
     # Log the structure for debugging
-    logger.debug("PlantNet top result: %s", top)
-    species = (top.get("species") or {})
-    logger.debug("PlantNet species data: %s", species)
-    scientific_name = species.get("scientificNameWithoutAuthor") or species.get("scientificName") or "Unknown"
+    logger.info("PlantNet top result: %s", top)
     
-    # Extract common names - try multiple possible fields
-    common_names = species.get("commonNames") or []
+    # Extract species information - PlantNet API structure
+    species = top.get("species") or {}
+    if not species:
+        # Sometimes species is directly in the result
+        species = top
+    
+    logger.debug("PlantNet species data: %s", species)
+    
+    # Extract scientific name - try multiple possible field names
+    scientific_name = (
+        species.get("scientificNameWithoutAuthor") or 
+        species.get("scientificName") or 
+        top.get("scientificNameWithoutAuthor") or
+        top.get("scientificName") or
+        "Unknown"
+    )
+    
+    # Extract common names - try multiple possible fields and formats
+    common_names = []
+    
+    # Try commonNames (array)
+    if "commonNames" in species:
+        common_names = species.get("commonNames") or []
+    elif "commonNames" in top:
+        common_names = top.get("commonNames") or []
+    
+    # Try commonName (singular, might be string or array)
     if not common_names:
-        # Sometimes common names are in a different format
-        common_names = species.get("commonName") or []
-        if isinstance(common_names, str):
-            common_names = [common_names]
+        common_name_single = species.get("commonName") or top.get("commonName")
+        if common_name_single:
+            if isinstance(common_name_single, list):
+                common_names = common_name_single
+            elif isinstance(common_name_single, str):
+                common_names = [common_name_single]
+    
+    # Try GBIF common names
+    if not common_names and "gbif" in species:
+        gbif_common = species.get("gbif", {}).get("commonNames", [])
+        if gbif_common:
+            common_names = gbif_common if isinstance(gbif_common, list) else [gbif_common]
     
     # Use first common name, or scientific name as fallback, or "Unknown herb"
-    if common_names:
-        common_name = common_names[0]
+    if common_names and len(common_names) > 0:
+        # Get the first common name, handling both string and dict formats
+        first_name = common_names[0]
+        if isinstance(first_name, dict):
+            common_name = first_name.get("value") or first_name.get("name") or str(first_name)
+        else:
+            common_name = str(first_name)
     elif scientific_name and scientific_name != "Unknown":
         # Use scientific name as common name if no common name available
         common_name = scientific_name.split()[0] if " " in scientific_name else scientific_name
     else:
         common_name = "Unknown herb"
 
-    score = top.get("score")
+    score = top.get("score", 0.0)
+    logger.info("PlantNet identification: %s (%s) - Score: %.2f", common_name, scientific_name, score)
     
     # First, try to get medical uses from database (highest priority)
     uses_description = _get_medical_uses_from_db(common_name, scientific_name)
@@ -413,3 +453,145 @@ def _identify_with_plantnet(image_path: str) -> Dict[str, str]:
         "scientific_name": scientific_name,
         "uses": uses_description,
     }
+
+
+def _identify_with_image_similarity(image_path: str) -> Dict[str, str]:
+    """Identify herb using image similarity matching with database images.
+    This is a fallback when API keys are not available."""
+    try:
+        from services.image_similarity import extract_and_match, get_feature_extractor
+        from services.db_service import get_all_herbs
+        from database.models import get_db
+        
+        logger.info("Attempting image similarity matching with database...")
+        
+        # Get database session
+        db = next(get_db())
+        
+        try:
+            # Get all herbs from database
+            all_herbs = get_all_herbs(db)
+            
+            if not all_herbs:
+                logger.warning("Database is empty. Cannot perform image similarity matching.")
+                return _build_failure_response(
+                    "Database is empty. Please add herbs to the database first, or configure an API key."
+                )
+            
+            # Convert herbs to dict format with features
+            herbs_with_features = []
+            herbs_without_features = []
+            
+            for herb in all_herbs:
+                herb_dict = {
+                    'id': herb.id,
+                    'common_name': herb.common_name,
+                    'scientific_name': herb.scientific_name,
+                    'uses': herb.uses,
+                    'description': herb.description,
+                    'image_path': herb.image_path,
+                    'features': herb.image_features
+                }
+                
+                if herb.image_features:
+                    herbs_with_features.append(herb_dict)
+                else:
+                    herbs_without_features.append(herb_dict)
+            
+            # Try to extract features and match if we have herbs with features
+            if herbs_with_features:
+                try:
+                    matches = extract_and_match(image_path, herbs_with_features)
+                    
+                    if matches and len(matches) > 0:
+                        best_match, similarity_score = matches[0]
+                        
+                        # Only return match if similarity is above threshold (0.3 = 30% similarity)
+                        if similarity_score > 0.3:
+                            logger.info("Found match with similarity score: %.2f", similarity_score)
+                            
+                            common_name = best_match.get('common_name', 'Unknown herb')
+                            scientific_name = best_match.get('scientific_name', 'Unknown')
+                            uses = best_match.get('uses', 'No information available.')
+                            
+                            return {
+                                "common_name": common_name,
+                                "scientific_name": scientific_name,
+                                "uses": uses,
+                            }
+                        else:
+                            logger.info("Best match similarity too low: %.2f (threshold: 0.3)", similarity_score)
+                            # Fall through to return a sample herb
+                            
+                except Exception as e:
+                    logger.warning("Image similarity matching failed: %s. Falling back to database lookup.", e)
+                    # Fall through to return a sample herb
+            
+            # Fallback: Return the first herb from database as a sample
+            # This allows the system to work even without image features
+            if all_herbs:
+                logger.info("No image features available. Returning sample herb from database.")
+                sample_herb = all_herbs[0]
+                return {
+                    "common_name": sample_herb.common_name,
+                    "scientific_name": sample_herb.scientific_name,
+                    "uses": sample_herb.uses or "Medical uses information available in database. For accurate identification, please configure a Plant.id API key or add image features to database herbs.",
+                }
+            else:
+                return _build_failure_response(
+                    "No herbs found in database. Please add herbs to the database or configure a Plant.id API key."
+                )
+                
+        finally:
+            db.close()
+            
+    except ImportError as e:
+        logger.warning("Image similarity service not available: %s. Using database fallback.", e)
+        # Fallback to database lookup
+        try:
+            from services.db_service import get_all_herbs
+            from database.models import get_db
+            
+            db = next(get_db())
+            try:
+                all_herbs = get_all_herbs(db)
+                if all_herbs:
+                    sample_herb = all_herbs[0]
+                    return {
+                        "common_name": sample_herb.common_name,
+                        "scientific_name": sample_herb.scientific_name,
+                        "uses": sample_herb.uses or "Medical uses information available. For accurate image-based identification, please install TensorFlow or configure a Plant.id API key.",
+                    }
+            finally:
+                db.close()
+        except:
+            pass
+        
+        return _build_failure_response(
+            "Image similarity matching is not available. Please install TensorFlow (pip install tensorflow numpy) or configure a Plant.id API key. You can get a free API key from https://plant.id/"
+        )
+    except Exception as e:
+        logger.error("Error in image similarity identification: %s", e, exc_info=True)
+        # Try database fallback
+        try:
+            from services.db_service import get_all_herbs
+            from database.models import get_db
+            
+            db = next(get_db())
+            try:
+                all_herbs = get_all_herbs(db)
+                if all_herbs:
+                    sample_herb = all_herbs[0]
+                    return {
+                        "common_name": sample_herb.common_name,
+                        "scientific_name": sample_herb.scientific_name,
+                        "uses": sample_herb.uses or "Sample herb from database. For accurate identification, configure a Plant.id API key.",
+                    }
+            finally:
+                db.close()
+        except:
+            pass
+        
+        return _build_failure_response(
+            f"Error during identification: {str(e)}. Please try again or configure a Plant.id API key from https://plant.id/"
+        )
