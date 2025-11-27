@@ -40,19 +40,29 @@ function UploadImage() {
 
     setLoading(true);
     setError(null);
+    setResult(null);
 
     const formData = new FormData();
     formData.append("file", image);
+
+    const startTime = Date.now();
 
     try {
       const { data } = await api.post("/predict", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
+      const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+
       if (data?.error) {
         setError(data.error);
         setResult(null);
         return;
+      }
+
+      // Add client-side timing if server didn't provide it
+      if (!data.processing_time) {
+        data.processing_time = parseFloat(totalTime);
       }
 
       setResult(data);
